@@ -36,5 +36,12 @@ backend/uploads/*
 
 # Variables de entorno
 .env
-.env.local
-.env.production
+.env.*
+*.env
+*.env.*
+railway_variables.json
+railway_variables.txt
+
+# Backups locales (con datos de clientes y credenciales)
+backup_*.json
+*.sql

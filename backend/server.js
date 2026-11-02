@@ -1,10 +1,11 @@
+const path = require('path');
+const fs = require('fs');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
-// Build trigger: 2026-04-23
+// Build trigger: 2026-11-02
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
-const path = require('path');
-const fs = require('fs');
 
 // Inicializar base de datos
 require('./config/database');

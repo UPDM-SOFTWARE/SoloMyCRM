@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "vercel-build": "vite build"
+    "vercel-build": "vite build",
+    "build:all": "npm run build && npm --prefix backend install",
+    "start": "node backend/server.js"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.4",
