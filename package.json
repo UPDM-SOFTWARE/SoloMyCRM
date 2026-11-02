@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "vercel-build": "vite build",
     "build:all": "npm run build && npm --prefix backend install",
-    "start": "node backend/server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.4",
