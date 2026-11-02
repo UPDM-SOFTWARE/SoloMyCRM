@@ -591,131 +591,6 @@ router.post('/suspend-subscription', async (req, res) => {
 });
 
 
-
-// @route   POST api/auth/billing-portal
-// @desc    Genera una sesión del Portal de Cliente de Stripe para gestionar suscripción
-// @access  Private (requiere JWT del usuario autenticado)
-router.post('/billing-portal', async (req, res) => {
-    try {
-        // Verificar token (reutilizamos lógica directa aquí para no depender del middleware)
-        const jwt = require('jsonwebtoken');
-        const token = req.header('x-auth-token') || req.header('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return res.status(401).json({ mensaje: 'No autenticado' });
-        }
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-
-        // Buscar usuario y su stripe_customer_id
-        const usuario = await db.prepare(
-            'SELECT id, usuario, email, stripe_customer_id FROM usuarios WHERE id = ?'
-        ).get(decoded.id);
-
-        if (!usuario) {
-            return res.status(404).json({ mensaje: 'Usuario no encontrado' });
-        }
-
-        if (!usuario.stripe_customer_id) {
-            return res.status(400).json({
-                mensaje: 'Tu cuenta no tiene una suscripción de Stripe asociada.',
-                code: 'NO_STRIPE_CUSTOMER'
-            });
-        }
-
-        // Importar Stripe dinámicamente (es un paquete server-side)
-        const Stripe = require('stripe');
-        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-        const returnUrl = process.env.CRM_URL
-            ? `${process.env.CRM_URL}/configuracion`
-            : 'https://app.solomycrm.com/configuracion';
-
-        const portalSession = await stripe.billingPortal.sessions.create({
-            customer: usuario.stripe_customer_id,
-            return_url: returnUrl,
-        });
-
-        console.log(`✅ Portal de facturación generado para: ${usuario.usuario}`);
-        res.json({ url: portalSession.url });
-
-    } catch (error) {
-        if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-            return res.status(401).json({ mensaje: 'Sesión inválida o expirada' });
-        }
-        console.error('❌ Error en register-paid:', error);
-        res.status(500).json({ mensaje: 'Error del servidor' });
-    }
-});
-
-
-// @route   POST api/auth/suspend-subscription
-// @desc    Inicia periodo de gracia (3 días) cuando Stripe cancela/pausa una suscripcion
-// @access  Internal — protegido por WEBHOOK_INTERNAL_SECRET
-router.post('/suspend-subscription', async (req, res) => {
-    try {
-        const internalSecret = req.headers['x-internal-secret'];
-        if (!internalSecret || internalSecret !== process.env.WEBHOOK_INTERNAL_SECRET) {
-            console.warn('⛔ Intento no autorizado a /suspend-subscription');
-            return res.status(403).json({ mensaje: 'No autorizado' });
-        }
-
-        const { stripe_subscription_id, stripe_customer_id, action } = req.body;
-        // action: 'suspend' (inicia gracia) | 'reactivate' (reactiva plan)
-
-        if (!stripe_subscription_id && !stripe_customer_id) {
-            return res.status(400).json({ mensaje: 'Se requiere stripe_subscription_id o stripe_customer_id' });
-        }
-
-        let usuario;
-        if (stripe_subscription_id) {
-            usuario = await db.prepare('SELECT id, usuario, email, nombre FROM usuarios WHERE stripe_subscription_id = ?').get(stripe_subscription_id);
-        }
-        if (!usuario && stripe_customer_id) {
-            usuario = await db.prepare('SELECT id, usuario, email, nombre FROM usuarios WHERE stripe_customer_id = ?').get(stripe_customer_id);
-        }
-
-        if (!usuario) {
-            console.warn(`⚠️ /suspend-subscription: No se encontró usuario con sub_id=${stripe_subscription_id} o cus_id=${stripe_customer_id}`);
-            return res.status(200).json({ mensaje: 'Usuario no encontrado, ignorado' });
-        }
-
-        let accion;
-        if (action === 'reactivate') {
-            // Reactivar completamente: plan activo, sin vencimiento inmediato
-            await db.prepare('UPDATE usuarios SET plan_activo = 1 WHERE id = ?').run(usuario.id);
-            accion = 'Cuenta reactivada';
-        } else {
-            // Iniciar periodo de gracia: plan_activo=false, plan_vencimiento=ahora+3días, activo sigue en 1
-            const graciaHasta = new Date(Date.now() + (3 * 24 * 60 * 60 * 1000));
-            await db.prepare('UPDATE usuarios SET plan_activo = 0, plan_vencimiento = ? WHERE id = ?')
-                .run(graciaHasta.toISOString(), usuario.id);
-            accion = `Periodo de gracia iniciado (hasta ${graciaHasta.toDateString()})`;
-        }
-
-        console.log(`✅ ${accion} para usuario: ${usuario.usuario} (id: ${usuario.id})`);
-
-        try {
-            await db.prepare('INSERT INTO actividades (tipo, vendedor, descripcion, resultado) VALUES (?, ?, ?, ?)')
-                .run('registro', usuario.id, `${accion} via Stripe webhook`, 'exitoso');
-        } catch (actError) {
-            console.error('Error registrando actividad de suspensión:', actError);
-        }
-
-        if (action !== 'reactivate') {
-            try {
-                await enviarCorreoCancelacion(usuario.email, usuario.nombre, true);
-                console.log(`✉️ Correo de cancelación enviado a ${usuario.email}`);
-            } catch (e) {
-                console.error('Error enviando correo de cancelación desde suspend-subscription:', e);
-            }
-        }
-
-        res.json({ mensaje: `${accion} exitosamente`, usuario: usuario.usuario });
-    } catch (error) {
-        console.error('❌ Error en /suspend-subscription:', error);
-        res.status(500).json({ mensaje: `Error del servidor: ${error?.message || error}` });
-    }
-});
-
 // @route   POST api/auth/renew-subscription
 // @desc    Disparado cuando Stripe emite invoice.paid (renovación de ciclo)
 // @access  Internal — protegido por WEBHOOK_INTERNAL_SECRET
@@ -742,7 +617,7 @@ router.post('/renew-subscription', async (req, res) => {
         }
 
         // Asegurar plan activo (aunque ya lo hace update-subscription)
-        await db.prepare('UPDATE usuarios SET plan_activo = 1 WHERE id = ?').run(usuario.id);
+        await db.prepare('UPDATE usuarios SET plan_activo = TRUE WHERE id = ?').run(usuario.id);
 
         try {
             await db.prepare('INSERT INTO actividades (tipo, vendedor, descripcion, resultado) VALUES (?, ?, ?, ?)')
@@ -807,7 +682,7 @@ router.post('/update-subscription', async (req, res) => {
 
         // Construir SET dinámicamente según qué campos llegaron
         const updates = ['activo = ?', 'plan_activo = ?'];
-        const params = [estaActivo ? 1 : 0, planActivo ? 1 : 0];
+        const params = [estaActivo ? 1 : 0, Boolean(planActivo)];
 
         if (plan && plan !== usuario.plan) {
             updates.push('plan = ?');
