@@ -655,6 +655,12 @@ const initDb = async () => {
         }
       }
     }
+    // Permitir oportunidades sin cliente/prospecto asociado (se pueden ligar después)
+    try {
+      await internalDb.query(`ALTER TABLE oportunidades ALTER COLUMN cliente_id DROP NOT NULL`);
+    } catch (e) {
+      console.error('⚠️ Migración oportunidades (cliente_id nullable) falló:', e.message);
+    }
     // Migración específica para oportunidades: migrar etapa a estado
     try {
       await internalDb.query(`

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, UserPlus, Edit2, Power, Crown, Shield, X, Check, Loader2, RefreshCw, Trash2, Search, Download, AlertTriangle, Phone, Mail } from 'lucide-react';
+import { Users, UserPlus, Edit2, Power, Crown, Shield, X, Check, Loader2, RefreshCw, Trash2, Search, Download, AlertTriangle, Phone, Mail, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { getUser, getToken } from '../utils/authUtils';
 import API_URL from '../config/api';
 const normalizeText = (value) => String(value || '')
@@ -33,8 +33,17 @@ export default function Equipo() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [formLoading, setFormLoading] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
+  const [formValidationErrors, setFormValidationErrors] = useState({});
+  const [resultModal, setResultModal] = useState({
+    isOpen: false,
+    type: 'success', // 'success' | 'error'
+    usuario: '',
+    title: '',
+    message: '',
+  });
+
+  const [memberToDelete, setMemberToDelete] = useState(null);
+  const [deletingMember, setDeletingMember] = useState(false);
 
   const [editMember, setEditMember] = useState(null);
   const [editForm, setEditForm] = useState(initialEditForm);
@@ -82,25 +91,99 @@ export default function Equipo() {
 
   useEffect(() => { fetchEquipo(); }, [fetchEquipo]);
 
+  const validateAddMemberForm = () => {
+    const errors = {};
+    const nombre = form.nombre?.trim() || '';
+    const usuario = form.usuario?.trim() || '';
+    const contraseña = form.contraseña || '';
+    const email = form.email?.trim() || '';
+
+    if (!nombre) {
+      errors.nombre = 'El nombre completo es obligatorio';
+    } else if (nombre.length < 2) {
+      errors.nombre = 'Debe tener al menos 2 caracteres';
+    }
+
+    if (!usuario) {
+      errors.usuario = 'El nombre de usuario es obligatorio';
+    } else if (usuario.length < 3) {
+      errors.usuario = 'Mínimo 3 caracteres';
+    } else if (!/^[a-zA-Z0-9_.-]+$/.test(usuario)) {
+      errors.usuario = 'Solo letras, números, puntos y guiones bajos (sin espacios)';
+    }
+
+    if (!contraseña) {
+      errors.contraseña = 'La contraseña es obligatoria';
+    } else if (contraseña.length < 6) {
+      errors.contraseña = 'La contraseña debe tener al menos 6 caracteres';
+    }
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = 'Formato de correo electrónico no válido';
+    }
+
+    return errors;
+  };
+
+  const handleCloseAddModal = () => {
+    setShowAddModal(false);
+    setForm(initialForm);
+    setFormValidationErrors({});
+  };
+
   const handleAddMember = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+
+    const errors = validateAddMemberForm();
+    if (Object.keys(errors).length > 0) {
+      setFormValidationErrors(errors);
+      return;
+    }
+
+    setFormValidationErrors({});
     setFormLoading(true);
-    setFormError('');
-    setFormSuccess('');
+
     try {
+      // Breve espera para visibilidad de la animación de validando
+      await new Promise(resolve => setTimeout(resolve, 400));
+
       const res = await fetch(`${API_URL}/api/equipos/agregar-miembro`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          nombre: form.nombre.trim(),
+          usuario: form.usuario.trim(),
+          contraseña: form.contraseña,
+          email: form.email.trim(),
+          telefono: form.telefono.trim(),
+        }),
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.mensaje || 'Error al agregar miembro');
-      setFormSuccess(`✅ ${data.usuario?.nombre} fue agregado al equipo`);
+      if (!res.ok) {
+        throw new Error(data.mensaje || 'Error al agregar miembro');
+      }
+
+      // Éxito: cerramos modal de formulario y abrimos modal simple de éxito
+      const nombreUsuario = data.usuario?.nombre || form.nombre.trim();
+      setShowAddModal(false);
       setForm(initialForm);
+      setFormValidationErrors({});
       fetchEquipo();
-      setTimeout(() => { setShowAddModal(false); setFormSuccess(''); }, 2000);
-    } catch (e) {
-      setFormError(e.message);
+
+      setResultModal({
+        isOpen: true,
+        type: 'success',
+        usuario: nombreUsuario,
+        message: '',
+      });
+    } catch (err) {
+      setResultModal({
+        isOpen: true,
+        type: 'error',
+        usuario: '',
+        message: err.message || 'Error al agregar miembro',
+      });
     } finally {
       setFormLoading(false);
     }
@@ -135,25 +218,63 @@ export default function Equipo() {
     }
   };
 
-  const handleDeleteMember = async (miembro) => {
+  const handleDeleteMember = (miembro) => {
     if (String(miembro.id) === String(userAuth?.id)) {
-      alert('No puedes eliminarte a ti mismo');
+      setResultModal({
+        isOpen: true,
+        type: 'error',
+        usuario: '',
+        title: 'Acción no permitida',
+        message: 'No puedes eliminarte a ti mismo del equipo.',
+      });
       return;
     }
     if (String(miembro.id) === String(equipo.owner_id)) {
-      alert('No puedes eliminar al propietario del equipo');
+      setResultModal({
+        isOpen: true,
+        type: 'error',
+        usuario: '',
+        title: 'Acción no permitida',
+        message: 'No puedes eliminar al propietario del equipo.',
+      });
       return;
     }
-    if (!window.confirm(`¿Eliminar permanentemente a ${miembro.nombre} del equipo?`)) return;
+    setMemberToDelete(miembro);
+  };
+
+  const confirmDeleteMember = async () => {
+    if (!memberToDelete) return;
+    setDeletingMember(true);
     try {
-      const res = await fetch(`${API_URL}/api/equipos/miembro/${miembro.id}/eliminar`, {
-        method: 'DELETE', headers
+      const res = await fetch(`${API_URL}/api/equipos/miembro/${memberToDelete.id}/eliminar`, {
+        method: 'DELETE',
+        headers
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.mensaje);
+      if (!res.ok) throw new Error(data.mensaje || 'Error al eliminar miembro');
+      
+      const nombreEliminado = memberToDelete.nombre;
+      setMemberToDelete(null);
       fetchEquipo();
+
+      setResultModal({
+        isOpen: true,
+        type: 'success',
+        usuario: nombreEliminado,
+        title: `Usuario "${nombreEliminado}" eliminado`,
+        message: ''
+      });
     } catch (e) {
-      alert(e.message);
+      setMemberToDelete(null);
+      setResultModal({
+        isOpen: true,
+        type: 'error',
+        usuario: '',
+        title: 'Error al eliminar',
+        message: e.message || 'No se pudo eliminar al miembro del equipo.',
+      });
+    } finally {
+      setDeletingMember(false);
     }
   };
 
@@ -457,7 +578,7 @@ export default function Equipo() {
       {showAddModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-inner">
                   <UserPlus size={24} />
@@ -468,68 +589,130 @@ export default function Equipo() {
                 </div>
               </div>
               <button
+                type="button"
                 className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-all"
-                onClick={() => { setShowAddModal(false); setFormError(''); setForm(initialForm); }}
+                onClick={handleCloseAddModal}
+                disabled={formLoading}
               >
                 <X size={24} />
               </button>
             </div>
 
-            {formError && (
-              <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-600 font-semibold text-sm">
-                <AlertTriangle size={18} /> {formError}
-              </div>
-            )}
-            {formSuccess && (
-              <div className="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-3 text-emerald-600 font-semibold text-sm italic">
-                {formSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleAddMember} className="space-y-6">
+            <form onSubmit={handleAddMember} noValidate className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 ml-1">Nombre Completo <span className="text-red-500">*</span></label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-slate-600 ml-1">
+                    Nombre Completo <span className="text-red-500">*</span>
+                  </label>
+                  {formValidationErrors.nombre && (
+                    <span className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                      <AlertCircle size={12} /> {formValidationErrors.nombre}
+                    </span>
+                  )}
+                </div>
                 <input
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 outline-none focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500) transition-all"
+                  className={`w-full px-3 py-2 bg-white border rounded-lg text-sm text-slate-800 outline-none transition-all ${
+                    formValidationErrors.nombre
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/20'
+                      : 'border-slate-300 focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500)'
+                  }`}
                   value={form.nombre}
-                  onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
-                  required
+                  onChange={e => {
+                    setForm(p => ({ ...p, nombre: e.target.value }));
+                    if (formValidationErrors.nombre) {
+                      setFormValidationErrors(prev => ({ ...prev, nombre: '' }));
+                    }
+                  }}
+                  disabled={formLoading}
                   placeholder="Ej: Ana María García"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-slate-600 ml-1">Usuario <span className="text-red-500">*</span></label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-600 ml-1">
+                      Usuario <span className="text-red-500">*</span>
+                    </label>
+                    {formValidationErrors.usuario && (
+                      <span className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                        <AlertCircle size={12} /> {formValidationErrors.usuario}
+                      </span>
+                    )}
+                  </div>
                   <input
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 outline-none focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500) transition-all font-mono"
+                    className={`w-full px-3 py-2 bg-white border rounded-lg text-sm text-slate-800 outline-none transition-all font-mono ${
+                      formValidationErrors.usuario
+                        ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/20'
+                        : 'border-slate-300 focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500)'
+                    }`}
                     value={form.usuario}
-                    onChange={e => setForm(p => ({ ...p, usuario: e.target.value }))}
-                    required
+                    onChange={e => {
+                      setForm(p => ({ ...p, usuario: e.target.value }));
+                      if (formValidationErrors.usuario) {
+                        setFormValidationErrors(prev => ({ ...prev, usuario: '' }));
+                      }
+                    }}
+                    disabled={formLoading}
                     placeholder="amgarcia"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-slate-600 ml-1">Contraseña <span className="text-red-500">*</span></label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-600 ml-1">
+                      Contraseña <span className="text-red-500">*</span>
+                    </label>
+                    {formValidationErrors.contraseña && (
+                      <span className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                        <AlertCircle size={12} /> {formValidationErrors.contraseña}
+                      </span>
+                    )}
+                  </div>
                   <input
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 outline-none focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500) transition-all"
                     type="password"
+                    className={`w-full px-3 py-2 bg-white border rounded-lg text-sm text-slate-800 outline-none transition-all ${
+                      formValidationErrors.contraseña
+                        ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/20'
+                        : 'border-slate-300 focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500)'
+                    }`}
                     value={form.contraseña}
-                    onChange={e => setForm(p => ({ ...p, contraseña: e.target.value }))}
-                    required
+                    onChange={e => {
+                      setForm(p => ({ ...p, contraseña: e.target.value }));
+                      if (formValidationErrors.contraseña) {
+                        setFormValidationErrors(prev => ({ ...prev, contraseña: '' }));
+                      }
+                    }}
+                    disabled={formLoading}
                     placeholder="••••••••"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-slate-600 ml-1">Correo Electrónico</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-600 ml-1">Correo Electrónico</label>
+                    {formValidationErrors.email && (
+                      <span className="text-[11px] text-rose-500 font-medium flex items-center gap-1">
+                        <AlertCircle size={12} /> {formValidationErrors.email}
+                      </span>
+                    )}
+                  </div>
                   <input
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 outline-none focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500) transition-all"
                     type="email"
+                    className={`w-full px-3 py-2 bg-white border rounded-lg text-sm text-slate-800 outline-none transition-all ${
+                      formValidationErrors.email
+                        ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/20'
+                        : 'border-slate-300 focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500)'
+                    }`}
                     value={form.email}
-                    onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                    onChange={e => {
+                      setForm(p => ({ ...p, email: e.target.value }));
+                      if (formValidationErrors.email) {
+                        setFormValidationErrors(prev => ({ ...prev, email: '' }));
+                      }
+                    }}
+                    disabled={formLoading}
                     placeholder="ana@empresa.com"
                   />
                 </div>
@@ -539,6 +722,7 @@ export default function Equipo() {
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 outline-none focus:border-(--theme-500) focus:ring-1 focus:ring-(--theme-500) transition-all"
                     value={form.telefono}
                     onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))}
+                    disabled={formLoading}
                     placeholder="+52 55 ..."
                   />
                 </div>
@@ -547,21 +731,111 @@ export default function Equipo() {
               <div className="pt-4 flex justify-end gap-3 border-t border-slate-100 mt-6">
                 <button
                   type="button"
-                  className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all"
-                  onClick={() => { setShowAddModal(false); setFormError(''); setForm(initialForm); }}
+                  className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-50"
+                  onClick={handleCloseAddModal}
+                  disabled={formLoading}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-(--theme-600) text-white rounded-lg text-sm font-medium hover:bg-(--theme-700) transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="px-5 py-2.5 bg-(--theme-600) text-white rounded-lg text-sm font-semibold hover:bg-(--theme-700) active:scale-[0.98] transition-all disabled:opacity-75 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm shadow-(--theme-500)/20 min-w-[130px]"
                   disabled={formLoading}
                 >
-                  {formLoading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
-                  {formLoading ? 'Procesando...' : 'Guardar'}
+                  {formLoading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin text-white" />
+                      <span className="animate-pulse">Validando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={16} />
+                      <span>Guardar</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmación de Eliminación */}
+      {memberToDelete && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={24} />
+            </div>
+            <h3 className="text-base font-bold text-gray-900 mb-1">
+              ¿Eliminar miembro?
+            </h3>
+            <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+              ¿Estás seguro de que deseas eliminar permanentemente a <span className="font-semibold text-gray-700">&ldquo;{memberToDelete.nombre}&rdquo;</span> del equipo?
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                type="button"
+                className="w-1/2 py-2.5 px-4 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-all"
+                onClick={() => setMemberToDelete(null)}
+                disabled={deletingMember}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="w-1/2 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                onClick={confirmDeleteMember}
+                disabled={deletingMember}
+              >
+                {deletingMember ? <Loader2 size={16} className="animate-spin" /> : null}
+                {deletingMember ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Simple de Éxito o Error */}
+      {resultModal.isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-in zoom-in-95 duration-200 text-center">
+            {resultModal.type === 'success' ? (
+              <>
+                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+                  <Check size={24} className="stroke-[2.5]" />
+                </div>
+                <h3 className="text-base font-bold text-gray-900 mb-5">
+                  {resultModal.title || `Usuario "${resultModal.usuario}" creado`}
+                </h3>
+                <button
+                  type="button"
+                  className="w-full py-2.5 px-4 bg-(--theme-600) text-white rounded-lg text-sm font-medium hover:bg-(--theme-700) transition-all"
+                  onClick={() => setResultModal({ isOpen: false, type: 'success', usuario: '', title: '', message: '' })}
+                >
+                  Aceptar
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle size={24} />
+                </div>
+                <h3 className="text-base font-bold text-gray-900 mb-1">
+                  {resultModal.title || 'Error'}
+                </h3>
+                <p className="text-xs text-gray-500 mb-5 leading-relaxed">
+                  {resultModal.message}
+                </p>
+                <button
+                  type="button"
+                  className="w-full py-2.5 px-4 bg-(--theme-600) text-white rounded-lg text-sm font-medium hover:bg-(--theme-700) transition-all"
+                  onClick={() => setResultModal({ isOpen: false, type: 'error', usuario: '', title: '', message: '' })}
+                >
+                  Aceptar
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

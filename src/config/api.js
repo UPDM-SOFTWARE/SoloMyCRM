@@ -6,13 +6,19 @@ const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '
 const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
 const isLocalHost = currentHost === 'localhost' || currentHost === '127.0.0.1';
 
-const normalizeBaseUrl = (url) => (url || '').replace(/\/+$/, '');
+const normalizeBaseUrl = (url) => {
+    let clean = (url || '').trim().replace(/\/+$/, '');
+    if (clean && !clean.startsWith('http://') && !clean.startsWith('https://')) {
+        clean = `https://${clean}`;
+    }
+    return clean;
+};
 const isLocalApiUrl = (url) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test((url || '').trim());
 
 // In Railway production we serve frontend + backend from the same host.
 // This prevents stale env values (e.g. old domains) from breaking auth calls.
-const forceSameOriginHosts = new Set(['crm-dr-production.up.railway.app', 'api.solomycrm.com', 'solomycrm.com']);
-const DEFAULT_REMOTE_API = 'https://api.solomycrm.com';
+const forceSameOriginHosts = new Set(['crm-dr-production.up.railway.app', 'app.solomycrm.com', 'api.solomycrm.com', 'solomycrm.com']);
+const DEFAULT_REMOTE_API = 'https://app.solomycrm.com';
 const safeEnvApiUrl = isLocalApiUrl(rawEnvApiUrl) ? '' : rawEnvApiUrl;
 const API_URL = forceSameOriginHosts.has(currentHost)
     ? normalizeBaseUrl(currentOrigin)

@@ -80,6 +80,7 @@ const Oportunidades = () => {
     const [contactosResultados, setContactosResultados] = useState([]);
     const [buscandoContactos, setBuscandoContactos] = useState(false);
     const [contactoSeleccionado, setContactoSeleccionado] = useState(null);
+    const [sinContacto, setSinContacto] = useState(false);
     const [formDeal, setFormDeal] = useState({ titulo: '', monto: '', notas: '' });
     const [creandoOportunidad, setCreandoOportunidad] = useState(false);
 
@@ -165,6 +166,7 @@ const Oportunidades = () => {
 
     const handleVerDetalles = (oportunidad) => {
         if (!oportunidad) return;
+        if (!oportunidad.cliente_id) { abrirModalEditar(oportunidad); return; }
         const esProspecto = esProspectoCheck(oportunidad);
         if (esProspecto) {
             navigate('/vendedor/prospectos', { state: { openClienteId: oportunidad.cliente_id } });
@@ -174,7 +176,9 @@ const Oportunidades = () => {
     };
 
     const abrirModalEditar = (p) => {
-        setOportunidadAEditar({ id: p._id || p.id, titulo: p.titulo || '', monto: p.monto || '' });
+        setOportunidadAEditar({ id: p._id || p.id, titulo: p.titulo || '', monto: p.monto || '', sinCliente: !p.cliente_id, nuevoContacto: null });
+        setContactoBusqueda('');
+        setContactosResultados([]);
         setModalEditarAbierto(true);
     };
 
@@ -183,7 +187,7 @@ const Oportunidades = () => {
         setLoadingEditar(true);
         try {
             await axios.put(`${API_URL}/api/oportunidades/${oportunidadAEditar.id}`,
-                { titulo: oportunidadAEditar.titulo, monto: oportunidadAEditar.monto },
+                { titulo: oportunidadAEditar.titulo, monto: oportunidadAEditar.monto, ...(oportunidadAEditar.nuevoContacto ? { cliente_id: oportunidadAEditar.nuevoContacto.id || oportunidadAEditar.nuevoContacto._id } : {}) },
                 { headers: getAuthHeaders() }
             );
             toast.success('Oportunidad actualizada');
@@ -221,15 +225,16 @@ const Oportunidades = () => {
         setContactoBusqueda('');
         setContactosResultados([]);
         setContactoSeleccionado(null);
+        setSinContacto(false);
         setFormDeal({ titulo: '', monto: '', notas: '' });
     };
 
     const handleCrearOportunidad = async () => {
-        if (!contactoSeleccionado) { toast.error('Selecciona un cliente o prospecto.'); return; }
+        if (!contactoSeleccionado && !sinContacto) { toast.error('Selecciona un cliente o prospecto.'); return; }
         if (!formDeal.titulo.trim()) { toast.error('El nombre de la oportunidad es obligatorio.'); return; }
         setCreandoOportunidad(true);
         try {
-            const clienteId = contactoSeleccionado.id || contactoSeleccionado._id;
+            const clienteId = contactoSeleccionado ? (contactoSeleccionado.id || contactoSeleccionado._id) : null;
             const kanbanCols = (() => { try { const s = localStorage.getItem('kanban_oportunidades_cols_v4'); return s ? JSON.parse(s) : null; } catch { return null; } })();
             const primeraEtapa = kanbanCols?.[0]?.id || 'nueva';
             await axios.post(`${API_URL}/api/oportunidades`, {
@@ -864,7 +869,7 @@ const Oportunidades = () => {
                                 <div>
                                     <h2 className="text-lg font-black text-slate-900 tracking-tight">Nueva Oportunidad</h2>
                                     <p className="text-xs text-slate-400 mt-0.5">
-                                        {stepCrear === 1 ? 'Paso 1 de 2 — Selecciona el cliente o prospecto' : `Paso 2 de 2 — Datos del negocio con ${contactoSeleccionado?.titulo || contactoSeleccionado?.nombres || 'el contacto'}`}
+                                        {stepCrear === 1 ? 'Paso 1 de 2 — Selecciona el cliente o prospecto' : (sinContacto ? 'Paso 2 de 2 — Datos de la oportunidad (sin cliente/prospecto)' : `Paso 2 de 2 — Datos del negocio con ${contactoSeleccionado?.titulo || contactoSeleccionado?.nombres || 'el contacto'}`)}
                                     </p>
                                 </div>
                                 <button onClick={resetModalCrear} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
@@ -888,6 +893,20 @@ const Oportunidades = () => {
                                             />
                                             {buscandoContactos && <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />}
                                         </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => { setContactoSeleccionado(null); setSinContacto(true); setStepCrear(2); }}
+                                            className="w-full flex items-center gap-3 p-3 border-2 border-dashed border-slate-200 hover:border-(--theme-400) hover:bg-slate-50 rounded-xl transition-all text-left"
+                                        >
+                                            <div className="w-9 h-9 rounded-full flex items-center justify-center bg-slate-100 text-slate-500 shrink-0">
+                                                <Briefcase className="w-4 h-4" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-bold text-sm text-slate-800">Crear sin cliente o prospecto</p>
+                                                <p className="text-xs text-slate-400">Podrás vincularlo después</p>
+                                            </div>
+                                        </button>
 
                                         {/* Resultados */}
                                         {contactosResultados.length > 0 ? (
@@ -937,10 +956,10 @@ const Oportunidades = () => {
                                                 {(contactoSeleccionado?.titulo || contactoSeleccionado?.nombres || '?').charAt(0).toUpperCase()}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="font-bold text-sm text-slate-800 truncate">{contactoSeleccionado?.titulo || contactoSeleccionado?.nombres}</p>
-                                                <p className="text-xs text-slate-400">{contactoSeleccionado?._tipo === 'prospecto' ? 'Prospecto' : 'Cliente'}</p>
+                                                <p className="font-bold text-sm text-slate-800 truncate">{sinContacto ? 'Sin cliente o prospecto' : (contactoSeleccionado?.titulo || contactoSeleccionado?.nombres)}</p>
+                                                <p className="text-xs text-slate-400">{sinContacto ? 'Podrás vincularlo después desde Editar' : (contactoSeleccionado?._tipo === 'prospecto' ? 'Prospecto' : 'Cliente')}</p>
                                             </div>
-                                            <button onClick={() => { setStepCrear(1); setContactoSeleccionado(null); }} className="text-xs text-slate-400 hover:text-slate-600 underline">
+                                            <button onClick={() => { setStepCrear(1); setContactoSeleccionado(null); setSinContacto(false); }} className="text-xs text-slate-400 hover:text-slate-600 underline">
                                                 cambiar
                                             </button>
                                         </div>
@@ -992,7 +1011,7 @@ const Oportunidades = () => {
                             {/* Footer */}
                             {stepCrear === 2 && (
                                 <div className="px-6 pb-6 flex gap-3">
-                                    <button onClick={() => setStepCrear(1)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all">
+                                    <button onClick={() => { setStepCrear(1); setSinContacto(false); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all">
                                         ← Atrás
                                     </button>
                                     <button
@@ -1058,6 +1077,41 @@ const Oportunidades = () => {
                                         />
                                     </div>
                                 </div>
+                                {oportunidadAEditar.sinCliente && (
+                                    <div>
+                                        <label className="block text-[11px] font-black text-slate-600 mb-1.5 uppercase tracking-wider">Vincular cliente o prospecto</label>
+                                        {oportunidadAEditar.nuevoContacto ? (
+                                            <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                                                <span className="text-sm font-bold text-slate-800 truncate">{oportunidadAEditar.nuevoContacto.titulo || oportunidadAEditar.nuevoContacto.nombres || oportunidadAEditar.nuevoContacto.nombre}</span>
+                                                <button onClick={() => setOportunidadAEditar(f => ({ ...f, nuevoContacto: null }))} className="text-xs text-slate-400 hover:text-slate-600 underline">quitar</button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    value={contactoBusqueda}
+                                                    onChange={(e) => setContactoBusqueda(e.target.value)}
+                                                    placeholder="Buscar cliente o prospecto..."
+                                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-(--theme-400) focus:bg-white transition-all"
+                                                />
+                                                {contactosResultados.length > 0 && (
+                                                    <div className="mt-1 space-y-1 max-h-40 overflow-y-auto">
+                                                        {contactosResultados.map(c => (
+                                                            <button
+                                                                key={c.id || c._id}
+                                                                onClick={() => { setOportunidadAEditar(f => ({ ...f, nuevoContacto: c })); setContactoBusqueda(''); setContactosResultados([]); }}
+                                                                className="w-full flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg text-left"
+                                                            >
+                                                                <span className="text-sm font-semibold text-slate-800 truncate">{c.titulo || c.nombres || c.nombre || 'Sin nombre'}</span>
+                                                                <span className="text-[10px] font-black text-slate-500">{c._tipo === 'prospecto' ? 'Prospecto' : 'Cliente'}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div className="px-6 pb-6 flex gap-3">
                                 <button onClick={() => setModalEditarAbierto(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all">Cancelar</button>

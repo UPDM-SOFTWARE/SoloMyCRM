@@ -40,7 +40,7 @@ router.post('/', auth, async (req, res) => {
         let { cliente_id, titulo, monto, etapa, notas, etapas_json, apellidoPaterno, apellidoMaterno, telefono, telefono2, correo, empresa, sitioWeb, ubicacion, fuente } = req.body;
         const vendedor_id = req.usuario.id;
         
-        if (!cliente_id) {
+        if (!cliente_id && req.body.crearProspecto === true) {
             const clienteResult = await db.prepare(`
                 INSERT INTO clientes (nombres, apellidoPaterno, apellidoMaterno, telefono, telefono2, correo, empresa, sitioWeb, ubicacion, fuente, etapaEmbudo, vendedorAsignado, fechaRegistro, fechaUltimaEtapa)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prospecto_nuevo', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -64,7 +64,7 @@ router.post('/', auth, async (req, res) => {
             `INSERT INTO oportunidades (cliente_id, vendedor_id, titulo, monto, etapa, notas, etapas_json) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`
         ).run(
-            cliente_id, 
+            cliente_id || null, 
             vendedor_id, 
             titulo || 'Nueva Oportunidad', 
             monto || 0, 
@@ -90,11 +90,12 @@ router.post('/', auth, async (req, res) => {
 router.put('/:id', auth, async (req, res) => {
     try {
         const id = req.params.id;
-        const { titulo, monto, etapa, notas, etapas_json, estado } = req.body;
+        const { titulo, monto, etapa, notas, etapas_json, estado, cliente_id } = req.body;
         
         await db.prepare(
             `UPDATE oportunidades 
-             SET titulo = COALESCE(?, titulo), 
+             SET cliente_id = COALESCE(?, cliente_id),
+                 titulo = COALESCE(?, titulo), 
                  monto = COALESCE(?, monto), 
                  etapa = COALESCE(?, etapa), 
                  notas = COALESCE(?, notas), 
@@ -102,7 +103,7 @@ router.put('/:id', auth, async (req, res) => {
                  estado = COALESCE(?, estado),
                  "fechaActualizacion" = CURRENT_TIMESTAMP 
              WHERE id = ?`
-        ).run(titulo, monto, etapa, notas, etapas_json, estado, id);
+        ).run(cliente_id || null, titulo, monto, etapa, notas, etapas_json, estado, id);
         
                 const oportunidad = await db.prepare(`
             SELECT o.*, c.nombres as cliente_nombres, c.empresa as cliente_empresa, c.etapaEmbudo as cliente_etapaEmbudo

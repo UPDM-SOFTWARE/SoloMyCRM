@@ -91,6 +91,7 @@ const DEFAULT_PREFS = {
 
 const STORAGE_COLS_KEY  = 'kanban_oportunidades_cols_v4';
 const STORAGE_PREFS_KEY = 'kanban_oportunidades_prefs_v3';
+const STORAGE_ORDER_KEY = 'kanban_oportunidades_order_v1';
 
 const getColor   = (id) => COLUMN_COLORS.find(c => c.id === id) || COLUMN_COLORS[0];
 const getTheme   = (id) => BOARD_THEMES.find(t => t.id === id) || BOARD_THEMES[0];
@@ -103,7 +104,7 @@ const formatMoney = (c) => {
     return `$${v.toLocaleString('es-MX')}`;
 };
 
-const sortClients = (list, sortBy) => {
+const sortClients = (list, sortBy, customOrder = []) => {
     const arr = [...list];
     switch (sortBy) {
         case 'name_asc':   return arr.sort((a, b) => (a.titulo||'').localeCompare(b.titulo||''));
@@ -111,8 +112,55 @@ const sortClients = (list, sortBy) => {
         case 'value_desc': return arr.sort((a, b) => (Number(b.monto||b.customMetricValue)||0) - (Number(a.monto||a.customMetricValue)||0));
         case 'stars_desc': return arr.sort((a, b) => (b.interes??5) - (a.interes??5));
         case 'recent':     return arr.sort((a, b) => new Date(b.fechaUltimaEtapa||0) - new Date(a.fechaUltimaEtapa||0));
-        default: return arr;
+        default: {
+            if (!Array.isArray(customOrder) || customOrder.length === 0) return arr;
+            const orderMap = new Map(customOrder.map((id, idx) => [String(id), idx]));
+            return arr.sort((a, b) => {
+                const idA = String(a._id || a.id);
+                const idB = String(b._id || b.id);
+                const idxA = orderMap.has(idA) ? orderMap.get(idA) : -1;
+                const idxB = orderMap.has(idB) ? orderMap.get(idB) : -1;
+                if (idxA === -1 && idxB === -1) return 0;
+                if (idxA === -1) return -1;
+                if (idxB === -1) return 1;
+                return idxA - idxB;
+            });
+        }
     }
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   TARJETA FANTASMA DE POSICIÓN DE SOLTADO
+═══════════════════════════════════════════════════════════════ */
+
+const GhostCardPlaceholder = ({ height, cardSize, themeIsDark }) => {
+    const defaultHeight = cardSize === 'compact' ? 58 : cardSize === 'detailed' ? 92 : 76;
+    const h = height || defaultHeight;
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
+            data-drop-placeholder="true"
+            style={{ height: `${h}px` }}
+            className={`w-full rounded-xl border-2 border-dashed shrink-0 pointer-events-none flex flex-col justify-between p-3 transition-colors ${
+                themeIsDark
+                    ? 'border-blue-400/70 bg-blue-500/10'
+                    : 'border-blue-400/80 bg-blue-50/60'
+            }`}
+        >
+            <div className="space-y-1.5">
+                <div className={`h-2.5 w-2/5 rounded-full ${themeIsDark ? 'bg-blue-400/25' : 'bg-blue-300/50'}`} />
+                <div className={`h-2 w-3/5 rounded-full ${themeIsDark ? 'bg-blue-400/15' : 'bg-blue-200/60'}`} />
+            </div>
+            <div className="flex items-center justify-between">
+                <div className={`h-3.5 w-14 rounded-full ${themeIsDark ? 'bg-blue-400/20' : 'bg-blue-200/70'}`} />
+                <div className={`h-3 w-12 rounded-md ${themeIsDark ? 'bg-blue-400/15' : 'bg-blue-200/50'}`} />
+            </div>
+        </motion.div>
+    );
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -137,9 +185,9 @@ const OportunidadCard = ({ oportunidad, cardSize, fields, colorId, isDragging, o
     return (
         <div
             className={`group relative rounded-xl border overflow-hidden
-                shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer select-none
+                shadow-sm hover:shadow-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none
                 ${isPerdida ? 'bg-slate-50/80 border-slate-300 opacity-90' : isGanada ? 'bg-emerald-50/80 border-emerald-200/60' : 'bg-white border-slate-200/80'}
-                ${isDragging ? 'opacity-30 scale-95 rotate-1 shadow-none' : 'hover:-translate-y-0.5'}
+                ${isDragging ? 'opacity-80 scale-[0.98] ring-2 ring-blue-400 shadow-md' : 'hover:-translate-y-0.5'}
                 ${isCompact ? 'p-2' : isDetailed ? 'p-4' : 'p-3'}`}
             onClick={() => onVerDetalles(oportunidad)}
         >
@@ -356,18 +404,87 @@ const ColumnHeader = ({ column, count, totalValue, onUpdate, onDelete, canDelete
 ═══════════════════════════════════════════════════════════════ */
 
 const KanbanColumn = ({
-    column, clients, prefs, themeIsDark,
+    column, clients, customOrder, prefs, themeIsDark,
     onVerDetalles, onEditar, onEliminar, onCompartir, isOwnerRecord,
     onUpdate, onDelete, canDelete, onDrop, dragging, setDragging,
+    draggedHeight, setDraggedHeight,
     onColDragStart, onColDragOver, onColDrop, onSortChange,
     colWidth,
 }) => {
     const [dragOver, setDragOver] = useState(false);
+    const [dropIndex, setDropIndex] = useState(null);
     const [dragEnabled, setDragEnabled] = useState(false);
     const colRef = useRef(null);
+    const cardsContainerRef = useRef(null);
     const c = getColor(column.colorId);
     const theme = getTheme(prefs.themeId);
-    const sorted = sortClients(clients, column.sortBy || prefs.sortBy);
+    const sorted = useMemo(
+        () => sortClients(clients, column.sortBy || prefs.sortBy, customOrder),
+        [clients, column.sortBy, prefs.sortBy, customOrder]
+    );
+
+    const draggedIndex = useMemo(
+        () => (dragging ? sorted.findIndex(item => String(item._id || item.id) === String(dragging)) : -1),
+        [dragging, sorted]
+    );
+
+    useEffect(() => {
+        if (!dragging) {
+            setDropIndex(null);
+            setDragOver(false);
+        }
+    }, [dragging]);
+
+    // Calculate vertical insertion index without oscillation when the ghost card is rendered
+    const computeDropIndex = useCallback((clientY) => {
+        const container = cardsContainerRef.current;
+        if (!container) return sorted.length;
+
+        const cardEls = Array.from(container.querySelectorAll('[data-card-id]'));
+        if (cardEls.length === 0) return 0;
+
+        // Auto-scroll vertically if dragging near top/bottom edge of the column
+        const containerRect = container.getBoundingClientRect();
+        const edgeZone = 36;
+        if (clientY < containerRect.top + edgeZone && container.scrollTop > 0) {
+            container.scrollTop -= 8;
+        } else if (clientY > containerRect.bottom - edgeZone && container.scrollTop < container.scrollHeight - container.clientHeight) {
+            container.scrollTop += 8;
+        }
+
+        // If a ghost placeholder is already visible and cursor is inside it, keep current dropIndex stable
+        const placeholderEl = container.querySelector('[data-drop-placeholder="true"]');
+        let placeholderShift = 0;
+        if (placeholderEl && dropIndex !== null) {
+            const pRect = placeholderEl.getBoundingClientRect();
+            if (clientY >= pRect.top - 6 && clientY <= pRect.bottom + 6) {
+                return dropIndex;
+            }
+            placeholderShift = pRect.height + 8; // 8px = gap-2
+        }
+
+        for (let i = 0; i < cardEls.length; i++) {
+            const rect = cardEls[i].getBoundingClientRect();
+            const unshiftedTop = (placeholderEl && dropIndex !== null && i >= dropIndex)
+                ? rect.top - placeholderShift
+                : rect.top;
+
+            let threshold = unshiftedTop + rect.height * 0.5;
+
+            if (draggedIndex !== -1) {
+                if (i === draggedIndex - 1) {
+                    threshold = unshiftedTop + rect.height * 0.85;
+                } else if (i === draggedIndex + 1) {
+                    threshold = unshiftedTop + rect.height * 0.15;
+                }
+            }
+
+            if (clientY < threshold) {
+                return i;
+            }
+        }
+        return cardEls.length;
+    }, [sorted.length, draggedIndex, dropIndex]);
 
     // Column drag (reorder)
     const handleColDragStart = (e) => {
@@ -381,19 +498,31 @@ const KanbanColumn = ({
         e.preventDefault(); 
         e.stopPropagation(); 
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        setDragOver(true); 
+        setDragOver(true);
+        if (dragging) {
+            const nextIdx = computeDropIndex(e.clientY);
+            if (nextIdx !== dropIndex) setDropIndex(nextIdx);
+        }
     };
     const handleDragEnter = (e) => {
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     };
-    const handleDragLeave = (e) => { if (!colRef.current?.contains(e.relatedTarget)) setDragOver(false); };
+    const handleDragLeave = (e) => {
+        if (!colRef.current?.contains(e.relatedTarget)) {
+            setDragOver(false);
+            setDropIndex(null);
+        }
+    };
     const handleDrop = (e) => {
-        e.preventDefault(); e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
+        const finalIndex = dragging ? (dropIndex ?? computeDropIndex(e.clientY)) : null;
         setDragOver(false);
+        setDropIndex(null);
         const oportunidadId = e.dataTransfer.getData('oportunidadId');
         const colId = e.dataTransfer.getData('colId');
-        if (oportunidadId) onDrop(oportunidadId, column.id);
+        if (oportunidadId) onDrop(oportunidadId, column.id, finalIndex);
         if (colId && colId !== column.id) onColDrop(colId, column.id);
     };
 
@@ -404,6 +533,12 @@ const KanbanColumn = ({
         if (isPerdida) return acc;
         return acc + (Number(c.monto || c.customMetricValue) || 0);
     }, 0);
+
+    const showIndicatorAt = (idx) =>
+        dragOver &&
+        Boolean(dragging) &&
+        dropIndex === idx &&
+        (draggedIndex === -1 || (idx !== draggedIndex && idx !== draggedIndex + 1));
 
     return (
         <div
@@ -434,6 +569,7 @@ const KanbanColumn = ({
 
             {/* Cards */}
             <div
+                ref={cardsContainerRef}
                 className={`flex flex-col gap-2 p-2.5 overflow-y-auto flex-1 min-h-0 scrollbar-hide rounded-xl ${theme.colBg} ${dragOver ? 'ring-2 ring-blue-400 ring-offset-1' : ''} ${wipOver ? 'ring-2 ring-red-400/60' : ''}`}
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
@@ -441,70 +577,79 @@ const KanbanColumn = ({
                 onDrop={handleDrop}
             >
                 {sorted.length === 0 ? (
-                    <div className={`flex flex-col items-center justify-center flex-1 min-h-[100px] h-full rounded-xl border-2 border-dashed transition-colors
-                        ${dragOver ? 'border-blue-400 bg-blue-50/40' : themeIsDark ? 'border-slate-600' : 'border-slate-200'}`}>
-                        {dragOver && (
-                            <p className={`text-[11px] italic ${textMuted}`}>
-                                Soltar aquí
-                            </p>
-                        )}
-                    </div>
+                    dragOver && dragging ? (
+                        <GhostCardPlaceholder
+                            height={draggedHeight}
+                            cardSize={prefs.cardSize}
+                            themeIsDark={themeIsDark}
+                        />
+                    ) : (
+                        <div className={`flex flex-col items-center justify-center flex-1 min-h-[100px] h-full rounded-xl border-2 border-dashed transition-colors
+                            ${dragOver ? 'border-blue-400 bg-blue-50/40' : themeIsDark ? 'border-slate-600' : 'border-slate-200'}`} />
+                    )
                 ) : (
                     <AnimatePresence>
-                        {sorted.map(oportunidad => {
+                        {sorted.map((oportunidad, idx) => {
                             const id = String(oportunidad._id || oportunidad.id);
                             return (
-                                <motion.div
-                                    key={id}
-                                    layoutId={`card-${id}`}
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.95 }}
-                                    transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                                    draggable
-                                    onDragStart={e => { 
-                                        e.stopPropagation();
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        e.dataTransfer.setData('oportunidadId', id); 
-                                        setDragging(id); 
-                                    }}
-                                    onDragEnd={() => setDragging(null)}
-                                >
-                                    <OportunidadCard
-                                        oportunidad={oportunidad}
-                                        cardSize={prefs.cardSize}
-                                        fields={prefs.fields}
-                                        colorId={column.colorId}
-                                        isDragging={dragging === id}
-                                        onVerDetalles={onVerDetalles}
-                                        onEditar={onEditar}
-                                        onEliminar={onEliminar}
-                                        onCompartir={onCompartir}
-                                        isOwner={oportunidad.esPropietario === true || isOwnerRecord(oportunidad)}
-                                    />
-                                </motion.div>
+                                <React.Fragment key={id}>
+                                    {showIndicatorAt(idx) && (
+                                        <GhostCardPlaceholder
+                                            height={draggedHeight}
+                                            cardSize={prefs.cardSize}
+                                            themeIsDark={themeIsDark}
+                                        />
+                                    )}
+                                    <motion.div
+                                        layout="position"
+                                        data-card-id={id}
+                                        initial={{ opacity: 0, scale: 0.95 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.95 }}
+                                        transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                                        draggable
+                                        onDragStart={e => { 
+                                            e.stopPropagation();
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            e.dataTransfer.setData('oportunidadId', id);
+                                            setDraggedHeight?.(e.currentTarget.offsetHeight);
+                                            setDragging(id); 
+                                        }}
+                                        onDragEnd={() => {
+                                            setDragging(null);
+                                            setDropIndex(null);
+                                            setDragOver(false);
+                                        }}
+                                    >
+                                        <OportunidadCard
+                                            oportunidad={oportunidad}
+                                            cardSize={prefs.cardSize}
+                                            fields={prefs.fields}
+                                            colorId={column.colorId}
+                                            isDragging={dragging === id}
+                                            onVerDetalles={onVerDetalles}
+                                            onEditar={onEditar}
+                                            onEliminar={onEliminar}
+                                            onCompartir={onCompartir}
+                                            isOwner={oportunidad.esPropietario === true || isOwnerRecord(oportunidad)}
+                                        />
+                                    </motion.div>
+                                </React.Fragment>
                             );
                         })}
+                        {showIndicatorAt(sorted.length) && (
+                            <GhostCardPlaceholder
+                                height={draggedHeight}
+                                cardSize={prefs.cardSize}
+                                themeIsDark={themeIsDark}
+                            />
+                        )}
                     </AnimatePresence>
-                )}
-
-                {/* Drop zone when dragging */}
-                {dragging && sorted.length > 0 && (
-                    <div className={`h-16 shrink-0 rounded-xl border-2 border-dashed transition-colors flex items-center justify-center
-                        ${dragOver ? 'border-blue-400 bg-blue-50/30' : themeIsDark ? 'border-slate-600/40' : 'border-slate-200/60'}`}>
-                        <p className={`text-[10px] ${textMuted}`}>Soltar aquí</p>
-                    </div>
                 )}
             </div>
         </div>
     );
 };
-
-/* ═══════════════════════════════════════════════════════════════
-   PANEL DE CONFIGURACIÓN
-═══════════════════════════════════════════════════════════════ */
-
-
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENTE PRINCIPAL
@@ -530,7 +675,13 @@ const KanbanOportunidades = ({
         return DEFAULT_PREFS;
     });
 
+    const [cardOrder, setCardOrder] = useState(() => {
+        try { const s = localStorage.getItem(STORAGE_ORDER_KEY); if (s) return JSON.parse(s); } catch {}
+        return {};
+    });
+
     const [dragging, setDragging] = useState(null);       // oportunidadId being dragged
+    const [draggedHeight, setDraggedHeight] = useState(76);
     const [draggingCol, setDraggingCol] = useState(null); // colId being dragged
     const [showSettings, setShowSettings] = useState(false);
     const [isAddingColumn, setIsAddingColumn] = useState(false);
@@ -609,6 +760,7 @@ const KanbanOportunidades = ({
     /* ── Persistencia ── */
     useEffect(() => { localStorage.setItem(STORAGE_COLS_KEY, JSON.stringify(columns)); }, [columns]);
     useEffect(() => { localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify(prefs)); }, [prefs]);
+    useEffect(() => { localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(cardOrder)); }, [cardOrder]);
 
     /* ── Derived ── */
     const theme      = getTheme(prefs.themeId);
@@ -675,10 +827,60 @@ const KanbanOportunidades = ({
         setColumns(p => p.map(c => c.id === colId ? { ...c, sortBy } : c));
     }, []);
 
-    /* ── Drag: cards ── */
-    const handleCardDrop = async (oportunidadId, colId) => {
+    /* ── Drag: cards (vertical reorder + column change) ── */
+    const handleCardDrop = async (oportunidadId, targetColId, insertIndex = null) => {
         setDragging(null);
-        if (onEtapaChange) await onEtapaChange(oportunidadId, colId);
+        const draggedId = String(oportunidadId);
+        const defaultColId = columns[0]?.id;
+        const draggedItem = oportunidades.find(o => String(o._id || o.id) === draggedId);
+        if (!draggedItem) return;
+
+        const sourceColId = getClientCol(draggedItem, defaultColId);
+        const targetColObj = columns.find(c => c.id === targetColId);
+        const activeSort = targetColObj?.sortBy || prefs.sortBy || 'default';
+
+        const targetCards = sortClients(grouped[targetColId] || [], activeSort, cardOrder[targetColId]);
+        const currentIds = targetCards.map(c => String(c._id || c.id));
+
+        if (sourceColId === targetColId) {
+            // Reordering vertically within the same column
+            const oldIndex = currentIds.indexOf(draggedId);
+            if (oldIndex === -1 || insertIndex === null || insertIndex === oldIndex || insertIndex === oldIndex + 1) {
+                return;
+            }
+            const nextIds = [...currentIds];
+            nextIds.splice(oldIndex, 1);
+            const adjIndex = insertIndex > oldIndex ? insertIndex - 1 : insertIndex;
+            nextIds.splice(adjIndex, 0, draggedId);
+
+            setCardOrder(prev => ({ ...prev, [targetColId]: nextIds }));
+            if (targetColObj?.sortBy && targetColObj.sortBy !== 'default') {
+                setColumns(p => p.map(c => c.id === targetColId ? { ...c, sortBy: 'default' } : c));
+            }
+            if (prefs.sortBy && prefs.sortBy !== 'default') {
+                setPrefs(p => ({ ...p, sortBy: 'default' }));
+            }
+            return;
+        }
+
+        // Moving to a different column at the exact insertion index
+        const nextTargetIds = currentIds.filter(id => id !== draggedId);
+        const targetIdx = typeof insertIndex === 'number'
+            ? Math.max(0, Math.min(insertIndex, nextTargetIds.length))
+            : nextTargetIds.length;
+        nextTargetIds.splice(targetIdx, 0, draggedId);
+
+        const sourceColObj = columns.find(c => c.id === sourceColId);
+        const sourceCards = sortClients(grouped[sourceColId] || [], sourceColObj?.sortBy || prefs.sortBy || 'default', cardOrder[sourceColId]);
+        const nextSourceIds = sourceCards.map(c => String(c._id || c.id)).filter(id => id !== draggedId);
+
+        setCardOrder(prev => ({
+            ...prev,
+            [sourceColId]: nextSourceIds,
+            [targetColId]: nextTargetIds,
+        }));
+
+        if (onEtapaChange) await onEtapaChange(oportunidadId, targetColId);
     };
 
     /* ── Drag: columns reorder ── */
@@ -807,6 +1009,7 @@ const KanbanOportunidades = ({
                                 key={col.id}
                                 column={col}
                                 clients={grouped[col.id] || []}
+                                customOrder={cardOrder[col.id] || []}
                                 prefs={prefs}
                                 themeIsDark={themeIsDark}
                                 onVerDetalles={onVerDetalles}
@@ -820,6 +1023,8 @@ const KanbanOportunidades = ({
                                 onDrop={handleCardDrop}
                                 dragging={dragging}
                                 setDragging={setDragging}
+                                draggedHeight={draggedHeight}
+                                setDraggedHeight={setDraggedHeight}
                                 onColDragStart={handleColDragStart}
                                 onColDragOver={handleColDragOver}
                                 onColDrop={handleColDrop}
