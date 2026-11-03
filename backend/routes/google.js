@@ -48,9 +48,14 @@ function isGoogleAuthError(error) {
     // Solo desconectar si Google dice explícitamente que el token es inválido o fue revocado
     return (
         combined.includes('invalid_grant') ||
+        combined.includes('unauthorized_client') ||
+        combined.includes('invalid_client') ||
+        combined.includes('invalid_credentials') ||
         combined.includes('token has been expired or revoked') ||
         combined.includes('access_denied') ||
-        combined.includes('unauthenticated')
+        combined.includes('unauthenticated') ||
+        error?.code === 401 ||
+        error?.response?.status === 401
     );
 }
 
@@ -204,10 +209,7 @@ router.get('/events', auth, async (req, res) => {
             return res.status(400).json({ msg: 'No se ha vinculado Google Calendar', notLinked: true });
         }
 
-        const client = new OAuth2Client(
-            process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET
-        );
+        const client = getOAuthClient();
 
         client.setCredentials({
             refresh_token: user.googleRefreshToken,
@@ -294,10 +296,7 @@ router.post('/create-event', auth, async (req, res) => {
             return res.status(400).json({ msg: 'title, startDateTime y endDateTime son requeridos' });
         }
 
-        const client = new OAuth2Client(
-            process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET
-        );
+        const client = getOAuthClient();
 
         client.setCredentials({
             refresh_token: user.googleRefreshToken,
@@ -521,10 +520,7 @@ router.get('/account-info', auth, async (req, res) => {
             return res.json({ msg: 'No se ha vinculado Google Calendar', notLinked: true, connected: false });
         }
 
-        const client = new OAuth2Client(
-            process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET
-        );
+        const client = getOAuthClient();
 
         client.setCredentials({
             refresh_token: user.googleRefreshToken,

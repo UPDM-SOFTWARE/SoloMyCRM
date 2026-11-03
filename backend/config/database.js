@@ -170,35 +170,32 @@ const mapPgRow = (row) => {
 };
 
 const normalizeGoogleTokenExpiryValue = (value) => {
-  if (value === null || value === undefined) return value;
+  if (value === null || value === undefined) return null;
 
   if (value instanceof Date) {
     const time = value.getTime();
-    return Number.isNaN(time) ? value : value.toISOString();
+    return Number.isNaN(time) ? null : time;
   }
 
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    if (value > 100000000000) return new Date(value).toISOString();
-    return value;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
   }
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (/^\d+$/.test(trimmed)) {
+    if (!trimmed) return null;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
       const numeric = Number(trimmed);
-      if (Number.isFinite(numeric) && numeric > 100000000000) {
-        return new Date(numeric).toISOString();
-      }
-      return value;
+      return Number.isFinite(numeric) ? numeric : null;
     }
 
     const parsed = Date.parse(trimmed);
     if (!Number.isNaN(parsed)) {
-      return new Date(parsed).toISOString();
+      return parsed;
     }
   }
 
-  return value;
+  return null;
 };
 
 const normalizePgParams = (sql, params = []) => {
