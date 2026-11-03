@@ -1365,13 +1365,31 @@ export default function ProspectoDetalle({
                                 {/* Componente de Oportunidades de Venta */}
                                 <OportunidadesPanel 
                                     clienteId={pid} 
+                                    esProspecto={true}
                                     containerClassName="xl:col-span-2"
                                     onOportunidadesChange={(opps) => {
-                                        const sum = opps.reduce((acc, o) => acc + (Number(o.monto) || 0), 0);
+                                        const sum = opps.filter(o => o.estado !== 'perdida' && o.etapa !== 'perdida').reduce((acc, o) => acc + (Number(o.monto) || 0), 0);
                                         const sumStr = sum.toString();
                                         if (valorProspecto !== sumStr) {
                                             setValorProspecto(sumStr);
                                             handleGuardarMetricaPersonalizada(sumStr, monedaSeleccionada);
+                                        }
+                                    }}
+                                    onConvertirACliente={async (opp) => {
+                                        try {
+                                            await axios.post(`${API_URL}/api/${rolePath}/pasar-a-cliente/${pid}`, {
+                                                notas: `Convertido tras registrar venta de: ${opp.titulo || 'Oportunidad'}`
+                                            }, { headers: getAuthHeaders() });
+                                            if (opp.monto) {
+                                                try {
+                                                    await axios.patch(`${API_URL}/api/vendedor/clientes-ganados/${pid}/facturado`, { incremento: Number(opp.monto) }, { headers: getAuthHeaders() });
+                                                } catch {}
+                                            }
+                                            toast.success('¡Prospecto convertido a cliente exitosamente!');
+                                            if (onActualizado) onActualizado();
+                                        } catch (e) {
+                                            console.error('Error al convertir:', e);
+                                            toast.error('No se pudo convertir el prospecto.');
                                         }
                                     }}
                                 />

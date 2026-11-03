@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, RefreshCw, ChevronRight, ArrowLeft, User, Trash2, Download, Upload, Plus, X, Phone, Filter, Star, Mail, Edit2, Building2, ChevronDown, Briefcase, DollarSign, UserSearch } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Search, RefreshCw, ChevronRight, ArrowLeft, User, Trash2, Download, Upload, Plus, X, Phone, Filter, Star, Mail, Edit2, Building2, ChevronDown, Briefcase, DollarSign, UserSearch } from 'lucide-react';
 import KanbanOportunidades from '../components/KanbanOportunidades';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -90,20 +90,21 @@ const Oportunidades = () => {
     const [loadingEditar, setLoadingEditar] = useState(false);
 
     // Modal confirmacion Ganada desde Kanban
+    const [oportunidadMenu, setOportunidadMenu] = useState(null);
     const [oportunidadGanadaPendiente, setOportunidadGanadaPendiente] = useState(null);
     const [procesandoCierre, setProcesandoCierre] = useState(false);
 
     const [lastViewedId, setLastViewedId] = useState(null);
 
     useEffect(() => {
-        const algunModalAbierto = mostrarModalCrear || modalEditarAbierto || !!oportunidadGanadaPendiente || !!oportunidadAEliminar;
+        const algunModalAbierto = mostrarModalCrear || modalEditarAbierto || !!oportunidadMenu || !!oportunidadGanadaPendiente || !!oportunidadAEliminar;
         const container = document.getElementById('main-scroll-container');
         if (container) {
             if (algunModalAbierto) container.style.setProperty('overflow', 'hidden', 'important');
             else container.style.removeProperty('overflow');
         }
         return () => { if (container) container.style.removeProperty('overflow'); };
-    }, [mostrarModalCrear, modalEditarAbierto, oportunidadGanadaPendiente, oportunidadAEliminar]);
+    }, [mostrarModalCrear, modalEditarAbierto, oportunidadMenu, oportunidadGanadaPendiente, oportunidadAEliminar]);
 
     const getAuthHeaders = () => ({ 'x-auth-token': getToken() || '' });
 
@@ -166,12 +167,43 @@ const Oportunidades = () => {
 
     const handleVerDetalles = (oportunidad) => {
         if (!oportunidad) return;
-        if (!oportunidad.cliente_id) { abrirModalEditar(oportunidad); return; }
+        setOportunidadMenu(oportunidad);
+    };
+
+    const navegarAPerfil = (oportunidad) => {
+        if (!oportunidad?.cliente_id) {
+            abrirModalEditar(oportunidad);
+            return;
+        }
         const esProspecto = esProspectoCheck(oportunidad);
         if (esProspecto) {
             navigate('/vendedor/prospectos', { state: { openClienteId: oportunidad.cliente_id } });
         } else {
             navigate('/vendedor/clientes', { state: { openClienteId: oportunidad.cliente_id } });
+        }
+    };
+
+    const marcarPerdida = async (opp) => {
+        const oppId = opp.id || opp._id;
+        try {
+            await axios.put(`${API_URL}/api/oportunidades/${oppId}`, { estado: 'perdida' }, { headers: getAuthHeaders() });
+            toast.success(`"${opp.titulo}" marcada como Perdida`);
+            clearCacheByPrefix('dashboard');
+            await cargarOportunidades();
+        } catch {
+            toast.error('Error al actualizar oportunidad');
+        }
+    };
+
+    const reabrirOportunidad = async (opp) => {
+        const oppId = opp.id || opp._id;
+        try {
+            await axios.put(`${API_URL}/api/oportunidades/${oppId}`, { estado: 'en_proceso' }, { headers: getAuthHeaders() });
+            toast.success(`"${opp.titulo}" reabierta`);
+            clearCacheByPrefix('dashboard');
+            await cargarOportunidades();
+        } catch {
+            toast.error('Error al reabrir oportunidad');
         }
     };
 
@@ -253,11 +285,7 @@ const Oportunidades = () => {
     };
 
     const handleEtapaChange = async (oportunidadId, nuevaEtapa) => {
-        if (nuevaEtapa === 'ganada') {
-            const opp = oportunidades.find(o => String(o.id || o._id) === String(oportunidadId));
-            setOportunidadGanadaPendiente({ ...(opp || { id: oportunidadId }), _nuevaEtapa: nuevaEtapa });
-            return;
-        }
+
         const oldOps = [...oportunidades];
         setOportunidades(prev => prev.map(c => String(c.id || c._id) === String(oportunidadId) ? { ...c, etapa: nuevaEtapa } : c));
         try {
@@ -595,6 +623,10 @@ const Oportunidades = () => {
                             handleToggleCompartido={handleToggleCompartido}
                             isOwnerRecord={isOwnerRecord}
                             onEtapaChange={handleEtapaChange}
+                            onMarcarGanada={(opp) => setOportunidadGanadaPendiente(opp)}
+                            onMarcarPerdida={marcarPerdida}
+                            onReabrir={reabrirOportunidad}
+                            onNavegarPerfil={navegarAPerfil}
                         />
                                 </motion.div>
                             ) : oportunidadesFiltrados.length === 0 ? (
@@ -1128,6 +1160,7 @@ const Oportunidades = () => {
                 )}
             </AnimatePresence>
 
+            
             {/* Modal confirmación Ganada */}
             <AnimatePresence>
                 {oportunidadGanadaPendiente && (

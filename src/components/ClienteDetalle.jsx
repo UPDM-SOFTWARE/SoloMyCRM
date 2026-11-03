@@ -646,6 +646,12 @@ export default function ClienteDetalle({
                 
                 setCustomSections(updated);
                 await handleGuardarSeccionesPersonalizadas(updated);
+                if (opp.monto) {
+                    try {
+                        await axios.patch(`${API_URL}/api/vendedor/clientes-ganados/${pid}/facturado`, { incremento: Number(opp.monto) }, { headers: getAuthHeaders() });
+                        if (onActualizado) onActualizado();
+                    } catch (e) { console.error("Error facturado:", e); }
+                }
             }
 
             // 2. Después registrar la actividad (así el servidor ya tiene los datos actualizados)

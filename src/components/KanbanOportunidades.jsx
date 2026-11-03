@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
+    MoreVertical, DollarSign, XCircle, User,
     Plus, X, Settings2, GripVertical, Phone, Mail, Star,
     MessageSquare, Clock, Edit2, Trash2, Share2, Check,
     Palette, MoreHorizontal, ArrowUpDown, EyeOff, Eye,
@@ -167,57 +168,83 @@ const GhostCardPlaceholder = ({ height, cardSize, themeIsDark }) => {
    CARD DE CLIENTE
 ═══════════════════════════════════════════════════════════════ */
 
-const OportunidadCard = ({ oportunidad, cardSize, fields, colorId, isDragging, onVerDetalles, onEditar, onEliminar, onCompartir, isOwner }) => {
-    const isDark = false; // could be passed from theme
-    const DOT_COLORS = ['bg-rose-500', 'bg-emerald-500', 'bg-amber-400', 'bg-slate-400'];
-    const charCode = String(oportunidad._id || oportunidad.id || 'a').charCodeAt(0) + (oportunidad.titulo?.length || 0);
-    const dotColor = DOT_COLORS[charCode % DOT_COLORS.length];
+const OportunidadCard = ({
+    oportunidad, cardSize, fields, colorId, isDragging,
+    onVerDetalles, onEditar, onEliminar, onCompartir, isOwner,
+    onMarcarGanada, onMarcarPerdida, onReabrir, onNavegarPerfil
+}) => {
+    const [showMenu, setShowMenu] = useState(false);
+    const menuRef = useRef(null);
+
+    useEffect(() => {
+        if (!showMenu) return;
+        const handleClickOutside = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) {
+                setShowMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showMenu]);
 
     const titulo = oportunidad.titulo || 'Sin título';
     const nombreCliente = oportunidad.cliente_nombres || oportunidad.cliente_empresa || 'Sin cliente asignado';
     const money  = formatMoney(oportunidad);
-    const c = getColor(colorId);
     const isCompact  = cardSize === 'compact';
     const isDetailed = cardSize === 'detailed';
 
     const isGanada = oportunidad.estado === 'ganada';
     const isPerdida = oportunidad.estado === 'perdida';
+
     return (
         <div
-            className={`group relative rounded-xl border overflow-hidden
-                shadow-sm hover:shadow-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none
+            className={`group relative rounded-xl border
+                shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer select-none
                 ${isPerdida ? 'bg-slate-50/80 border-slate-300 opacity-90' : isGanada ? 'bg-emerald-50/80 border-emerald-200/60' : 'bg-white border-slate-200/80'}
                 ${isDragging ? 'opacity-80 scale-[0.98] ring-2 ring-blue-400 shadow-md' : 'hover:-translate-y-0.5'}
-                ${isCompact ? 'p-2' : isDetailed ? 'p-4' : 'p-3'}`}
-            onClick={() => onVerDetalles(oportunidad)}
+                ${isCompact ? 'p-2' : isDetailed ? 'p-4' : 'p-3'}
+                ${showMenu ? 'z-40 ring-1 ring-blue-400' : ''}`}
+            onClick={() => setShowMenu(prev => !prev)}
         >
-            {/* Marca de agua / Estampita visual para estado */}
-            {isGanada && (
-                <div className="absolute -right-5 top-2.5 bg-emerald-500 text-white text-[7px] font-black uppercase tracking-widest px-6 py-0.5 rotate-45 shadow-sm z-10 pointer-events-none">
-                    Ganada
-                </div>
-            )}
-            {isPerdida && (
-                <div className="absolute -right-5 top-2.5 bg-slate-500 text-white text-[7px] font-black uppercase tracking-widest px-6 py-0.5 rotate-45 shadow-sm z-10 pointer-events-none">
-                    Perdida
-                </div>
-            )}
+            {/* Contenedor recortado para estampita de Ganada/Perdida */}
+            <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+                {isGanada && (
+                    <div className="absolute -right-5 top-2.5 bg-emerald-500 text-white text-[7px] font-black uppercase tracking-widest px-6 py-0.5 rotate-45 shadow-sm">
+                        Ganada
+                    </div>
+                )}
+                {isPerdida && (
+                    <div className="absolute -right-5 top-2.5 bg-slate-500 text-white text-[7px] font-black uppercase tracking-widest px-6 py-0.5 rotate-45 shadow-sm">
+                        Perdida
+                    </div>
+                )}
+            </div>
 
-
-            {/* Header: titulo */}
-            <div className="flex items-start justify-between gap-1.5">
-                <div className="min-w-0 flex-1 pr-2">
+            {/* Header: Titulo y boton tres puntos */}
+            <div className="flex items-start justify-between gap-1.5 relative">
+                <div className="min-w-0 flex-1 pr-1">
                     <p className={`font-bold text-gray-900 leading-tight truncate ${isCompact ? 'text-xs' : 'text-sm'}`}>
                         {titulo}
                     </p>
-                    <p className={`text-slate-500 truncate mt-0.5 text-[11px]`}>
+                    <p className="text-slate-500 truncate mt-0.5 text-[11px]">
                         {nombreCliente}
                     </p>
                 </div>
+
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(prev => !prev);
+                    }}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+                    title="Opciones"
+                >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                </button>
             </div>
 
-            {/* Footer: money & Tipo */}
-            <div className={`flex items-center justify-between ${isCompact ? 'mt-1.5' : 'mt-2.5 pt-1'}`}>
+            {/* Footer: Money y Tipo */}
+            <div className={`flex items-center justify-between relative ${isCompact ? 'mt-1.5' : 'mt-2.5 pt-1'}`}>
                 {money && money !== '$-' && money !== '$0' && money !== '$0.00' ? (
                     <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">{money}</span>
                 ) : (
@@ -228,6 +255,71 @@ const OportunidadCard = ({ oportunidad, cardSize, fields, colorId, isDragging, o
                     {esProspecto(oportunidad) ? 'PROSPECTO' : 'CLIENTE'}
                 </div>
             </div>
+
+            {/* CUADRITO DE MENU CHIKITO FLOTANTE */}
+            {showMenu && (
+                <div
+                    ref={menuRef}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-1 top-8 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl w-44 py-1.5 text-xs overflow-hidden animate-in fade-in zoom-in-95"
+                >
+                    <button
+                        onClick={() => { setShowMenu(false); onNavegarPerfil?.(oportunidad); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700 font-semibold transition-colors text-left"
+                    >
+                        <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span className="truncate">Ver perfil</span>
+                    </button>
+
+                    {!isGanada && (
+                        <button
+                            onClick={() => { setShowMenu(false); onMarcarGanada?.(oportunidad); }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-emerald-700 hover:bg-emerald-50 font-bold transition-colors text-left"
+                        >
+                            <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Marcar Ganada</span>
+                        </button>
+                    )}
+
+                    {!isPerdida && (
+                        <button
+                            onClick={() => { setShowMenu(false); onMarcarPerdida?.(oportunidad); }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:bg-rose-50 hover:text-rose-700 font-medium transition-colors text-left"
+                        >
+                            <XCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>Marcar Perdida</span>
+                        </button>
+                    )}
+
+                    {(isGanada || isPerdida) && (
+                        <button
+                            onClick={() => { setShowMenu(false); onReabrir?.(oportunidad); }}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-amber-700 hover:bg-amber-50 font-medium transition-colors text-left"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>Reabrir</span>
+                        </button>
+                    )}
+
+                    <div className="border-t border-slate-100 my-1" />
+
+                    <button
+                        onClick={() => { setShowMenu(false); onEditar?.(oportunidad); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-slate-700 hover:bg-slate-50 font-medium transition-colors text-left"
+                    >
+                        <Edit2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Editar</span>
+                    </button>
+
+                    <button
+                        onClick={() => { setShowMenu(false); onEliminar?.(oportunidad); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-rose-600 hover:bg-rose-50 font-medium transition-colors text-left"
+                    >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <span>Eliminar</span>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
@@ -405,7 +497,7 @@ const ColumnHeader = ({ column, count, totalValue, onUpdate, onDelete, canDelete
 
 const KanbanColumn = ({
     column, clients, customOrder, prefs, themeIsDark,
-    onVerDetalles, onEditar, onEliminar, onCompartir, isOwnerRecord,
+    onVerDetalles, onEditar, onEliminar, onCompartir, isOwnerRecord, onMarcarGanada, onMarcarPerdida, onReabrir, onNavegarPerfil,
     onUpdate, onDelete, canDelete, onDrop, dragging, setDragging,
     draggedHeight, setDraggedHeight,
     onColDragStart, onColDragOver, onColDrop, onSortChange,
@@ -629,6 +721,10 @@ const KanbanColumn = ({
                                             isDragging={dragging === id}
                                             onVerDetalles={onVerDetalles}
                                             onEditar={onEditar}
+                                            onMarcarGanada={onMarcarGanada}
+                                            onMarcarPerdida={onMarcarPerdida}
+                                            onReabrir={onReabrir}
+                                            onNavegarPerfil={onNavegarPerfil}
                                             onEliminar={onEliminar}
                                             onCompartir={onCompartir}
                                             isOwner={oportunidad.esPropietario === true || isOwnerRecord(oportunidad)}
@@ -658,6 +754,10 @@ const KanbanColumn = ({
 const KanbanOportunidades = ({
     oportunidades,
     onVerDetalles,
+    onMarcarGanada,
+    onMarcarPerdida,
+    onReabrir,
+    onNavegarPerfil,
     abrirModalEditar,
     setOportunidadAEliminar,
     handleToggleCompartido,
@@ -1014,6 +1114,10 @@ const KanbanOportunidades = ({
                                 themeIsDark={themeIsDark}
                                 onVerDetalles={onVerDetalles}
                                 onEditar={abrirModalEditar}
+                                onMarcarGanada={onMarcarGanada}
+                                onMarcarPerdida={onMarcarPerdida}
+                                onReabrir={onReabrir}
+                                onNavegarPerfil={onNavegarPerfil}
                                 onEliminar={setOportunidadAEliminar}
                                 onCompartir={handleToggleCompartido}
                                 isOwnerRecord={isOwnerRecord}
