@@ -305,6 +305,7 @@ router.get('/dashboard', [auth, esVendedor], async (req, res) => {
     }
 });
 
+// LEGACY / EN DESUSO: Endpoint anterior de rol separado 'closer'. El sistema actual utiliza rol único 'vendedor'.
 // GET /api/vendedor/dashboard-closer
 router.get('/dashboard-closer', [auth, esVendedor], async (req, res) => {
     try {
@@ -2825,6 +2826,7 @@ router.delete('/prospectos/:id', [auth, esVendedor], async (req, res) => {
     }
 });
 
+// LEGACY / EN DESUSO: Endpoint antiguo del flujo separado closer.
 // POST /api/closer/pasar-a-cliente/:id
 router.post('/pasar-a-cliente/:id', [auth, esVendedor], async (req, res) => {
     try {
@@ -2870,6 +2872,7 @@ router.post('/pasar-a-cliente/:id', [auth, esVendedor], async (req, res) => {
     }
 });
 
+// LEGACY / EN DESUSO: Endpoint antiguo del flujo separado closer.
 // POST /api/closer/descartar-prospecto/:id
 router.post('/descartar-prospecto/:id', [auth, esVendedor], async (req, res) => {
     try {

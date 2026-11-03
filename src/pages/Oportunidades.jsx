@@ -152,6 +152,7 @@ const Oportunidades = () => {
         return () => clearInterval(interval);
     }, [filtroVisibilidad]);
 
+    // LEGACY / EN DESUSO: Función antigua de la vista previa tipo lista para compartir oportunidades entre vendedores
     const handleToggleCompartido = async (oportunidad, nuevoEstado) => {
         const id = oportunidad.id || oportunidad._id;
         const prev = [...oportunidades];
@@ -413,8 +414,8 @@ const Oportunidades = () => {
                             </h1>
                             <p className="text-xs md:text-sm text-gray-500 mt-0.5 leading-snug">
                                 {esMenuSeguimiento
-                                    ? 'Gestiona y da seguimiento a tu cartera de oportunidades ganados.'
-                                    : 'Cartera de oportunidades ganados.'}
+                                    ? 'Gestiona y da seguimiento a tu cartera de oportunidades ganadas.'
+                                    : 'Gestión y seguimiento de oportunidades de venta.'}
                             </p>
                         </div>
 
@@ -429,7 +430,7 @@ const Oportunidades = () => {
                                             title="Filtros"
                                         >
                                             <Filter className="w-4 h-4" />
-                                            {(ordenFiltro !== 'todos' || filtroVisibilidad !== 'mine') && (
+                                            {ordenFiltro !== 'todos' && (
                                                 <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
                                             )}
                                         </button>
@@ -445,9 +446,9 @@ const Oportunidades = () => {
                                                 >
                                                     <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                                                         <span className="text-xs font-bold text-slate-700">Filtros</span>
-                                                        {(ordenFiltro !== 'todos' || filtroVisibilidad !== 'mine') && (
+                                                        {ordenFiltro !== 'todos' && (
                                                             <button
-                                                                onClick={() => { setOrdenFiltro('todos'); setFiltroVisibilidad('mine'); }}
+                                                                onClick={() => { setOrdenFiltro('todos'); }}
                                                                 className="text-[10px] font-semibold text-red-500 hover:text-red-700"
                                                             >
                                                                 Limpiar
@@ -455,6 +456,7 @@ const Oportunidades = () => {
                                                         )}
                                                     </div>
                                                     <div className="p-2 flex flex-col gap-2">
+                                                        {/* LEGACY / EN DESUSO: Filtro de visibilidad de la vista previa de lista
                                                         <div className="flex flex-col gap-1">
                                                             <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-1">Visibilidad</label>
                                                             <select
@@ -467,6 +469,7 @@ const Oportunidades = () => {
                                                                 <option value="all">Todos visibles</option>
                                                             </select>
                                                         </div>
+                                                        */}
                                                         <div className="flex flex-col gap-1">
                                                             <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-1">Ordenar por</label>
                                                             <select
