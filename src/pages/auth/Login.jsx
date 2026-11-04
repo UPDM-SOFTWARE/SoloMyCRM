@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useAnimationControls } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, ArrowDown, Layout, Check } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, ArrowDown, Layout, Check, AlertCircle, WifiOff } from 'lucide-react';
 import { getUser, saveUser, saveToken, getSavedAccounts, saveUserToRemember, removeSavedAccount } from '../../utils/authUtils';
 import API_URL from '../../config/api';
 import socket from '../../config/socket';
@@ -155,7 +155,9 @@ const Login = () => {
   const { width } = useWindowSize();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+  const [serverErrorModal, setServerErrorModal] = useState(null);
+  const passControls = useAnimationControls();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
@@ -176,7 +178,11 @@ const Login = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('expired')) {
-      setError(params.get('msg') || 'Tu sesión ha expirado. Por favor inicia sesión de nuevo.');
+      setServerErrorModal({
+        title: 'Sesión expirada',
+        message: params.get('msg') || 'Tu sesión ha expirado. Por favor inicia sesión de nuevo.',
+        icon: 'alert'
+      });
     }
     if (params.get('demo') === 'true') {
       setShowDemoModal(true);
@@ -214,7 +220,7 @@ const Login = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError('');
+    setPasswordError(false);
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
@@ -239,17 +245,39 @@ const Login = () => {
         // Show green success button briefly, then kick off morph sequence
         setTimeout(() => { doMorphAndNavigate(); }, 800);
       } else {
-        setError(data.mensaje || data.message || 'Credenciales incorrectas');
+        if (response.status >= 500) {
+          setServerErrorModal({
+            title: 'Error del servidor',
+            message: data?.mensaje || data?.message || 'Ocurrió un error en el servidor. Por favor intenta más tarde.',
+            icon: 'server'
+          });
+        } else if (response.status === 401 && (data?.mensaje || data?.message || '').toLowerCase().includes('desactivado')) {
+          setServerErrorModal({
+            title: 'Cuenta desactivada',
+            message: data?.mensaje || 'Tu cuenta se encuentra desactivada. Por favor contacta al administrador.',
+            icon: 'alert'
+          });
+        } else {
+          setPasswordError(true);
+          passControls.start({
+            x: [0, -12, 12, -8, 8, -4, 4, 0],
+            transition: { duration: 0.45, ease: 'easeInOut' }
+          });
+        }
       }
     } catch {
-      setError('No hay conexión con el servidor ⚠️');
+      setServerErrorModal({
+        title: 'Error de conexión',
+        message: 'No hay conexión con el servidor. Verifica tu conexión a internet o intenta nuevamente.',
+        icon: 'wifi'
+      });
     } finally {
       setLoading(false);
     }
   };
 
   const handleDemoLogin = async () => {
-    setError('');
+    setPasswordError(false);
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/auth/demo-login`, {
@@ -274,12 +302,20 @@ const Login = () => {
         setLoginSuccess(true);
         setTimeout(() => { doMorphAndNavigate(); }, 800);
       } else {
-        setError(data.mensaje || data.message || 'Error al crear cuenta demo');
         setShowDemoModal(false);
+        setServerErrorModal({
+          title: 'Error de cuenta demo',
+          message: data?.mensaje || data?.message || 'Error al crear cuenta demo en el servidor.',
+          icon: 'server'
+        });
       }
     } catch {
-      setError('No hay conexión con el servidor ⚠️');
       setShowDemoModal(false);
+      setServerErrorModal({
+        title: 'Error de conexión',
+        message: 'No hay conexión con el servidor. Verifica tu conexión a internet.',
+        icon: 'wifi'
+      });
     } finally {
       setLoading(false);
     }
@@ -290,13 +326,24 @@ const Login = () => {
     return <LoginMobile />;
   }
 
-  const inputWrapStyle = (key) => ({
-    background: focusedField === key ? 'white' : 'rgba(255,255,255,0.5)',
-    border: focusedField === key
-      ? '1px solid var(--theme-500)'
-      : '1px solid rgba(0,0,0,0.08)',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  });
+  const inputWrapStyle = (key) => {
+    if (key === 'pass' && passwordError) {
+      return {
+        background: 'rgba(254, 242, 242, 0.75)',
+        border: '1.5px solid #ef4444',
+        boxShadow: '0 0 0 3px rgba(239, 68, 68, 0.15)',
+        transition: 'all 0.25s ease',
+      };
+    }
+    return {
+      background: focusedField === key ? 'white' : 'rgba(255,255,255,0.5)',
+      border: focusedField === key
+        ? '1px solid var(--theme-500)'
+        : '1px solid rgba(0,0,0,0.08)',
+      boxShadow: focusedField === key ? '0 0 0 3px var(--theme-500)15' : 'none',
+      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    };
+  };
 
   return (
     <AnimatedGridBackground mode="light">
@@ -461,13 +508,6 @@ const Login = () => {
                 </div>
 
                 <div className="w-full">
-                  <AnimatePresence mode="wait">
-                    {error && (
-                      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="p-4 rounded-xl bg-red-50 border border-red-100 text-red-600 text-[11px] font-black uppercase tracking-wider flex items-center gap-3 shadow-sm mb-6">
-                        <span className="text-lg">⚠</span> {error}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
 
                   {showAccountsList && savedAccounts.length > 0 ? (
                     <div className="space-y-4 animate-in fade-in zoom-in duration-300">
@@ -541,16 +581,37 @@ const Login = () => {
 
                         <div className="group">
                           <div className="flex items-center justify-between px-1 mb-2">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-focus-within:text-(--theme-500) transition-colors">Contraseña</label>
+                            <label className={`text-[10px] font-black uppercase tracking-widest transition-colors ${
+                              passwordError ? 'text-red-500' : 'text-slate-400 group-focus-within:text-(--theme-500)'
+                            }`}>Contraseña</label>
                             <Link to="/recuperar" className="text-[10px] font-bold text-slate-300 hover:text-slate-500 transition-colors">¿Olvidaste tu contraseña?</Link>
                           </div>
-                          <div className="relative flex items-center rounded-2xl overflow-hidden bg-slate-50/50 group-hover:bg-slate-50 transition-colors" style={inputWrapStyle('pass')}>
-                            <Lock size={18} className="absolute left-5 pointer-events-none" style={{ color: focusedField === 'pass' ? 'var(--theme-500)' : 'var(--theme-300)' }} />
-                            <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} onFocus={() => setFocusedField('pass')} onBlur={() => setFocusedField(null)} required className="w-full bg-transparent pl-14 pr-14 py-4 text-base font-bold outline-none text-slate-800 placeholder-slate-300" placeholder="••••••••" />
+                          <motion.div
+                            animate={passControls}
+                            className="relative flex items-center rounded-2xl overflow-hidden bg-slate-50/50 group-hover:bg-slate-50 transition-colors"
+                            style={inputWrapStyle('pass')}
+                          >
+                            <Lock size={18} className="absolute left-5 pointer-events-none transition-colors" style={{ color: passwordError ? '#ef4444' : focusedField === 'pass' ? 'var(--theme-500)' : 'var(--theme-300)' }} />
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              value={password}
+                              onChange={e => {
+                                setPassword(e.target.value);
+                                if (passwordError) setPasswordError(false);
+                              }}
+                              onFocus={() => {
+                                setFocusedField('pass');
+                                if (passwordError) setPasswordError(false);
+                              }}
+                              onBlur={() => setFocusedField(null)}
+                              required
+                              className={`w-full bg-transparent pl-14 pr-14 py-4 text-base font-bold outline-none text-slate-800 placeholder-slate-300 ${passwordError ? 'placeholder-red-300' : ''}`}
+                              placeholder="••••••••"
+                            />
                             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-slate-300 hover:text-slate-500 transition-colors bg-white px-2 py-1.5 rounded-lg shadow-sm border border-slate-100">
                               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
-                          </div>
+                          </motion.div>
                         </div>
                       </div>
 
@@ -683,6 +744,52 @@ const Login = () => {
                     {loading ? 'Entrando...' : 'Entrar a Demo'}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+            {/* MODAL DE ERROR DE SERVIDOR / CONEXIÓN */}
+      <AnimatePresence>
+        {serverErrorModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setServerErrorModal(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden z-10"
+            >
+              <div className="p-8">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 ${
+                  serverErrorModal.icon === 'wifi' ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600'
+                }`}>
+                  {serverErrorModal.icon === 'wifi' ? (
+                    <WifiOff size={24} strokeWidth={2.5} />
+                  ) : (
+                    <AlertCircle size={24} strokeWidth={2.5} />
+                  )}
+                </div>
+                <h3 className="text-2xl font-black tracking-tight text-slate-900 mb-3">
+                  {serverErrorModal.title}
+                </h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed mb-8">
+                  {serverErrorModal.message}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setServerErrorModal(null)}
+                  className="w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-md"
+                >
+                  Entendido
+                </button>
               </div>
             </motion.div>
           </div>
